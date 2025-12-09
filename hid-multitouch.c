@@ -31,6 +31,7 @@
  * [1] https://gitlab.freedesktop.org/libevdev/hid-tools
  */
 
+#include <linux/version.h>
 #include <linux/device.h>
 #include <linux/hid.h>
 #include <linux/module.h>
@@ -46,6 +47,22 @@ MODULE_DESCRIPTION("HID multitouch panels");
 MODULE_LICENSE("GPL");
 
 #include "hid-ids.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 16, 0)
+
+#define timer_container_of from_timer
+
+static inline int timer_delete(struct timer_list *timer)
+{
+	return del_timer(timer);
+}
+
+static inline int timer_delete_sync(struct timer_list *timer)
+{
+	return del_timer_sync(timer);
+}
+
+#endif
 
 /* quirks to control the device */
 #define MT_QUIRK_NOT_SEEN_MEANS_UP	BIT(0)
@@ -1284,7 +1301,7 @@ static void mt_touch_report(struct hid_device *hid,
 			mod_timer(&td->release_timer,
 				  jiffies + msecs_to_jiffies(100));
 		else
-			del_timer(&td->release_timer);
+			timer_delete(&td->release_timer);
 	}
 
 	clear_bit_unlock(MT_IO_FLAGS_RUNNING, &td->mt_io_flags);
@@ -1705,7 +1722,7 @@ static void mt_release_contacts(struct hid_device *hid)
 
 static void mt_expired_timeout(struct timer_list *t)
 {
-	struct mt_device *td = from_timer(td, t, release_timer);
+	struct mt_device *td = timer_container_of(td, t, release_timer);
 	struct hid_device *hdev = td->hdev;
 
 	/*
@@ -1838,7 +1855,7 @@ static void mt_remove(struct hid_device *hdev)
 {
 	struct mt_device *td = hid_get_drvdata(hdev);
 
-	del_timer_sync(&td->release_timer);
+	timer_delete_sync(&td->release_timer);
 
 	sysfs_remove_group(&hdev->dev.kobj, &mt_attribute_group);
 	hid_hw_stop(hdev);
